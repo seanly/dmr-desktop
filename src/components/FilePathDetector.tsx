@@ -271,11 +271,11 @@ export function FilePathDetector({ children, className }: FilePathDetectorProps)
           const position = { x: rect.left, y: rect.bottom + 4 };
           const matchData = { path: match.path, isRelative: match.isRelative };
 
-          // 1 秒后显示 tooltip
+          // 3 秒后显示 tooltip
           const timer = setTimeout(() => {
             setTooltipPosition(position);
             setHoveredMatch(matchData);
-          }, 1000);
+          }, 3000);
 
           setShowTimer(timer);
         }}

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { ApprovalOverlay } from "./components/ApprovalOverlay";
 import { LoginPage } from "./components/LoginPage";
 import { ChatHeader, ChatMessageList, ChatComposer } from "./components/chat";
@@ -7,9 +8,29 @@ import { CreateHandoffDialog } from "./components/CreateHandoffDialog";
 import { TapeSelectDialog } from "./components/TapeSelectDialog";
 import { AnchorSelectDialog } from "./components/AnchorSelectDialog";
 import { ErrorDialog } from "./components/ErrorDialog";
+import SettingsPage from "./components/settings/SettingsPage";
+import StartupLoader from "./components/StartupLoader";
 import { useTapeChatSession } from "./hooks/useTapeChatSession";
 
 export default function App() {
+  const [showSettings, setShowSettings] = useState(false);
+  const [startupComplete, setStartupComplete] = useState(false);
+
+  // 显示启动加载器
+  if (!startupComplete) {
+    return <StartupLoader onComplete={() => setStartupComplete(true)} />;
+  }
+
+  return <AppContent showSettings={showSettings} setShowSettings={setShowSettings} />;
+}
+
+function AppContent({
+  showSettings,
+  setShowSettings
+}: {
+  showSettings: boolean;
+  setShowSettings: (show: boolean) => void;
+}) {
   const {
     user,
     setUser,
@@ -58,6 +79,10 @@ export default function App() {
     return <LoginPage onLogin={(username) => setUser(username)} />;
   }
 
+  if (showSettings) {
+    return <SettingsPage onClose={() => setShowSettings(false)} />;
+  }
+
   return (
     <div className="flex h-screen flex-col bg-background">
       <ChatHeader
@@ -77,6 +102,7 @@ export default function App() {
         authEnabled={authEnabled}
         user={user}
         onLogout={() => setUser(null)}
+        onSettingsClick={() => setShowSettings(true)}
       />
 
       <ContextUsageBar contextUsage={contextUsage} />

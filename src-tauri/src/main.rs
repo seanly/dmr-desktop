@@ -2,13 +2,51 @@
 
 mod dmr;
 mod config;
+mod weixin_login;
 
 use config::DmrConfig;
 use dmr::DmrManager;
+use weixin_login::WeixinLogin;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tauri::Manager;
 use tauri_plugin_shell::ShellExt;
+
+#[tauri::command]
+async fn weixin_get_qrcode() -> Result<weixin_login::QRCodeResponse, String> {
+    let login = WeixinLogin::new();
+    login.get_qrcode().await
+}
+
+#[tauri::command]
+async fn weixin_poll_status(qrcode: String) -> Result<weixin_login::StatusResponse, String> {
+    let login = WeixinLogin::new();
+    login.poll_status(&qrcode).await
+}
+
+#[tauri::command]
+async fn weixin_save_credentials(
+    credentials: weixin_login::WeixinCredentials,
+) -> Result<(), String> {
+    use std::fs;
+
+    let home = dirs::home_dir().ok_or("Cannot find home directory")?;
+    let cred_path = home.join(".dmr").join("weixin").join("credentials.json");
+
+    // 创建目录
+    if let Some(parent) = cred_path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create directory: {}", e))?;
+    }
+
+    // 保存凭证
+    let json = serde_json::to_string_pretty(&credentials)
+        .map_err(|e| format!("Failed to serialize credentials: {}", e))?;
+
+    fs::write(&cred_path, json)
+        .map_err(|e| format!("Failed to write credentials: {}", e))?;
+
+    Ok(())
+}
 
 #[tauri::command]
 fn check_config_exists() -> bool {
@@ -26,6 +64,47 @@ async fn save_config(config: DmrConfig) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn get_config() -> Result<DmrConfig, String> {
+    DmrConfig::load()
+}
+
+#[tauri::command]
+async fn check_dmr_health() -> Result<bool, String> {
+    match reqwest::get("http://localhost:8080/api/health").await {
+        Ok(response) => Ok(response.status().is_success()),
+        Err(_) => Ok(false),
+    }
+}
+
+#[tauri::command]
+async fn restart_dmr(app: tauri::AppHandle) -> Result<(), String> {
+    // 尝试获取 dmr_manager，如果不存在说明是首次启动
+    if let Some(dmr_manager) = app.try_state::<Arc<Mutex<DmrManager>>>() {
+        let mut manager = dmr_manager.lock().await;
+
+        // 停止当前进程
+        manager.stop().await?;
+
+        // 重新启动
+        manager.start().await?;
+    } else {
+        // 首次启动，创建并启动 DMR
+        let dmr = DmrManager::new(8080);
+        let dmr_manager = Arc::new(Mutex::new(dmr));
+
+        {
+            let mut manager = dmr_manager.lock().await;
+            manager.start().await?;
+        } // 释放锁
+
+        // 保存到 app state
+        app.manage(dmr_manager);
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
 async fn open_file(app: tauri::AppHandle, path: String) -> Result<(), String> {
     app.shell()
         .open(&path, None)
@@ -36,7 +115,7 @@ async fn open_file(app: tauri::AppHandle, path: String) -> Result<(), String> {
 fn get_workspace_path() -> Result<String, String> {
     // 从 DMR 配置中读取 workspace 路径
     match DmrConfig::load() {
-        Ok(config) => {
+        Ok(_config) => {
             // 如果配置中有 workspace 字段，返回它
             // 否则返回默认的 ~/.dmr/workspace
             let home = dirs::home_dir().ok_or("Cannot find home directory")?;
@@ -54,6 +133,13 @@ fn get_workspace_path() -> Result<String, String> {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // 当尝试启动第二个实例时，激活已有窗口
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_focus();
+                let _ = window.unminimize();
+            }
+        }))
         .setup(|app| {
             // 检查配置是否存在
             if !DmrConfig::exists() {
@@ -83,8 +169,14 @@ fn main() {
             check_config_exists,
             get_default_config,
             save_config,
+            get_config,
+            restart_dmr,
+            check_dmr_health,
             open_file,
-            get_workspace_path
+            get_workspace_path,
+            weixin_get_qrcode,
+            weixin_poll_status,
+            weixin_save_credentials
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

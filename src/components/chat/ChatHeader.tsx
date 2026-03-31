@@ -1,4 +1,4 @@
-import { Bot, ChevronDown, Anchor, RefreshCw } from "lucide-react";
+import { Bot, ChevronDown, Anchor, RefreshCw, Settings } from "lucide-react";
 import type { Message, TapeAnchorRow } from "../../types/chat";
 import { TopOutlineMenu } from "./TopOutlineMenu";
 import { UserMenu } from "./UserMenu";
@@ -21,6 +21,7 @@ type Props = {
   authEnabled: boolean;
   user: string | null;
   onLogout: () => void;
+  onSettingsClick: () => void;
 };
 
 export function ChatHeader({
@@ -40,6 +41,7 @@ export function ChatHeader({
   authEnabled,
   user,
   onLogout,
+  onSettingsClick,
 }: Props) {
   const currentAnchor = anchors.find((a) => a.entry_id === historyAfterEntryId);
   const anchorLabel = historyAfterEntryId
@@ -86,6 +88,14 @@ export function ChatHeader({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={onSettingsClick}
+            className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-foreground hover:bg-muted"
+            title="Settings"
+          >
+            <Settings className="size-4" />
+          </button>
           <button
             type="button"
             onClick={() => window.location.reload()}
