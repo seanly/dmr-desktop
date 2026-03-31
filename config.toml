@@ -1,0 +1,25 @@
+# DMR Desktop 配置
+
+# 模型配置（需要用户自己配置）
+[[models]]
+name = "default"
+model = "claude-opus-4"
+api_key = "${AI_API_KEY}"
+api_base = "${AI_API_BASE}"
+default = true
+
+# Agent 配置
+[agent]
+max_steps = 50
+max_token = 200000
+
+# Tape 配置
+[tape]
+name = "desktop"
+db_path = "~/.dmr/desktop.db"
+
+# Web Plugin 配置
+[[plugins]]
+name = "web"
+path = "dmr-plugin-web"
+config = { listen = ":8080" }

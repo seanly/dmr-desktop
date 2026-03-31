@@ -1,52 +1,48 @@
-import { useState, useEffect } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { StartupScreen } from './components/StartupScreen';
-import { ChatInterface } from './components/ChatInterface';
+import Setup from './Setup';
 
 export default function App() {
-  const [ready, setReady] = useState(false);
-  const [closing, setClosing] = useState(false);
+  const [configExists, setConfigExists] = useState<boolean | null>(null);
 
   useEffect(() => {
-    const setupListener = async () => {
-      const unlisten = await listen('app-close-requested', async () => {
-        await handleClose();
-      });
-      return unlisten;
-    };
-
-    let cleanup: (() => void) | undefined;
-    setupListener().then(fn => {
-      cleanup = fn;
-    });
-
-    return () => {
-      if (cleanup) cleanup();
-    };
+    checkConfig();
   }, []);
 
-  async function handleClose() {
-    setClosing(true);
+  async function checkConfig() {
     try {
-      await invoke('stop_sidecar');
-      await invoke('exit');
-    } catch (error) {
-      console.error('Failed to close:', error);
+      const exists = await invoke<boolean>('check_config_exists');
+      setConfigExists(exists);
+
+      if (exists) {
+        // 配置存在，等待 DMR 启动后跳转
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        window.location.href = 'http://localhost:8080';
+      }
+    } catch (err) {
+      console.error('检查配置失败:', err);
     }
   }
 
-  if (closing) {
+  if (configExists === null) {
     return (
-      <div className="flex h-screen items-center justify-center bg-gray-900">
-        <p className="text-white">正在关闭...</p>
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-gray-600">初始化中...</div>
       </div>
     );
   }
 
-  if (!ready) {
-    return <StartupScreen onReady={() => setReady(true)} />;
+  if (!configExists) {
+    return <Setup />;
   }
 
-  return <ChatInterface />;
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="text-center">
+        <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+        <div className="text-xl text-gray-700 mb-2">正在启动 DMR...</div>
+        <div className="text-sm text-gray-500">首次启动可能需要几秒钟</div>
+      </div>
+    </div>
+  );
 }

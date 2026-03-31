@@ -2,124 +2,139 @@
 
 基于 Tauri 构建的 DMR 桌面应用，提供原生桌面体验的 AI Agent 交互界面。
 
-## 技术栈
+## 架构
 
-- **前端**: React 19 + TypeScript + Vite + Tailwind CSS 4
-- **桌面框架**: Tauri 2.x
-- **后端**: Rust (Tauri) + Go (DMR sidecar)
-- **通信**: Tauri IPC + HTTP/SSE
-
-## 快速开始
-
-### 前置要求
-
-- Node.js 18+
-- Rust 1.70+
-- Go 1.21+
-- 系统依赖（根据平台）:
-  - macOS: Xcode Command Line Tools
-  - Linux: `build-essential`, `libwebkit2gtk-4.0-dev`, `libssl-dev`, `libgtk-3-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`
-  - Windows: Microsoft Visual Studio C++ Build Tools
-
-### 安装依赖
-
-```bash
-make install
+```
+┌─────────────────┐
+│  Tauri 窗口     │
+│  (React 前端)   │
+└────────┬────────┘
+         │ HTTP (localhost:8080)
+         ↓
+┌─────────────────┐
+│  dmr serve      │
+│  + web plugin   │
+└────────┬────────┘
+         │
+         ↓
+┌─────────────────┐
+│  DMR Core       │
+│  Agent + Tape   │
+└─────────────────┘
 ```
 
-### 开发模式
+**说明：** DMR Desktop 是一个桌面客户端，连接到本地运行的 `dmr serve`。
 
+## 使用方法
+
+### 1. 启动 DMR 服务
+
+在终端运行：
 ```bash
-make dev
+dmr serve
 ```
 
-### 构建生产版本
+### 2. 启动 DMR Desktop
+
+```bash
+cd dmr-desktop
+make dev      # 开发模式
+# 或
+make build    # 构建生产版本
+```
+
+应用会自动连接到 `http://localhost:8080`。
+
+## 前置要求
+
+1. **安装 DMR**
+   ```bash
+   cd ../dmr
+   go install ./cmd/dmr
+   ```
+
+2. **安装 dmr-plugin-web**
+   ```bash
+   cd ../dmr-plugin-web
+   make install
+   ```
+
+3. **配置 DMR**
+
+   创建 `~/.dmr/config.toml`:
+   ```toml
+   [[models]]
+   name = "default"
+   model = "claude-opus-4"
+   api_key = "your-api-key"
+   default = true
+
+   [[plugins]]
+   name = "web"
+   path = "dmr-plugin-web"
+   config = { listen = ":8080" }
+   ```
+
+## 开发
+
+```bash
+make install  # 安装前端依赖
+make dev      # 启动开发模式
+```
+
+**注意：** 开发前需要先在另一个终端运行 `dmr serve`。
+
+## 构建
 
 ```bash
 make build
 ```
 
-构建产物位于 `src-tauri/target/release/bundle/`
-
-## 可用命令
-
-运行 `make help` 查看所有可用命令：
-
-```bash
-make help
-```
-
-## 项目结构
-
-```
-dmr-desktop/
-├── src/                    # React 前端
-│   ├── components/         # React 组件
-│   ├── hooks/              # React Hooks
-│   ├── lib/                # 工具函数
-│   ├── App.tsx             # 主应用
-│   └── main.tsx            # 入口文件
-├── src-tauri/              # Tauri Rust 后端
-│   ├── src/
-│   │   ├── main.rs         # 主入口
-│   │   ├── sidecar.rs      # Sidecar 进程管理
-│   │   └── commands.rs     # Tauri 命令
-│   ├── binaries/           # DMR sidecar 二进制
-│   ├── Cargo.toml
-│   └── tauri.conf.json
-├── Makefile
-└── package.json
-```
+构建产物在 `src-tauri/target/release/bundle/`。
 
 ## 核心功能
 
-- ✅ 启动画面和进度显示
-- ✅ DMR Sidecar 进程管理
+- ✅ 连接到本地 DMR 服务
 - ✅ AI 对话界面
-- ✅ 本地文件链接处理
-- ✅ 审批弹窗
-- ⏳ SSE 消息流集成
-- ⏳ 优雅关闭流程
-
-## 开发说明
-
-### 构建 Sidecar
-
-开发时只需构建当前平台：
-
-```bash
-make sidecar-local
-```
-
-发布时构建所有平台：
-
-```bash
-make sidecar
-```
-
-### 调试
-
-开发模式下会自动打开 DevTools。查看 Rust 日志：
-
-```bash
-RUST_LOG=debug make dev
-```
+- ✅ 消息历史
+- ✅ 上下文使用情况显示
+- ✅ 自动重连
+- ✅ 关闭时清理 DMR 进程
 
 ## 与 dmr-plugin-web 的差异
 
 | 特性 | dmr-plugin-web | dmr-desktop |
 |------|----------------|-------------|
-| 运行环境 | 浏览器 | 原生桌面 |
+| 运行环境 | 浏览器 | 原生桌面窗口 |
+| 启动方式 | 访问 localhost:8080 | 独立应用 |
 | 认证 | 支持（可选） | 不需要 |
 | Tape 管理 | 多 Tape 切换 | 固定 desktop |
-| 文件访问 | 受限 | 原生支持 |
-| 进程管理 | 外部管理 | 内置管理 |
+| 窗口管理 | 浏览器标签 | 原生窗口 |
 
-## 参考文档
+## 故障排除
 
-- [设计方案](../dmr/docs/issues/dmr-desktop-design.md)
-- [Tauri 官方文档](https://tauri.app/)
-- [DMR 项目](../dmr/)
+### 无法连接到 DMR 服务
+
+确保 `dmr serve` 正在运行：
+```bash
+# 检查服务是否运行
+curl http://localhost:8080/api/health
+
+# 如果没有运行，启动它
+dmr serve
+```
+
+### 端口被占用
+
+如果 8080 端口被占用，修改 DMR 配置：
+```toml
+[[plugins]]
+name = "web"
+path = "dmr-plugin-web"
+config = { listen = ":8081" }  # 使用其他端口
+```
+
+然后修改 `src/hooks/useTapeChatSession.ts` 中的 `apiBase`。
 
 ## License
 
