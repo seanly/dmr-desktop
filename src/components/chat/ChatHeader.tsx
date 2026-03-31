@@ -1,7 +1,8 @@
-import { Bot, ChevronDown, Anchor, RefreshCw, Settings } from "lucide-react";
+import { Bot, ChevronDown, Anchor, RefreshCw, Settings, Sun, Moon } from "lucide-react";
 import type { Message, TapeAnchorRow } from "../../types/chat";
 import { TopOutlineMenu } from "./TopOutlineMenu";
 import { UserMenu } from "./UserMenu";
+import { useTheme } from "../../hooks/useTheme";
 import type { RefObject } from "react";
 
 type Props = {
@@ -50,6 +51,9 @@ export function ChatHeader({
       : `#${historyAfterEntryId}`
     : "Default";
 
+  const { resolved, setTheme } = useTheme();
+  const toggleTheme = () => setTheme(resolved === "dark" ? "light" : "dark");
+
   return (
     <header className="border-b border-border/60 px-4 sm:px-5 py-2">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 justify-between">
@@ -88,6 +92,14 @@ export function ChatHeader({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-foreground hover:bg-muted"
+            title={resolved === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {resolved === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+          </button>
           <button
             type="button"
             onClick={onSettingsClick}
