@@ -69,10 +69,29 @@ fn get_config() -> Result<DmrConfig, String> {
 }
 
 #[tauri::command]
-async fn check_dmr_health() -> Result<bool, String> {
-    match reqwest::get("http://localhost:8080/api/health").await {
+async fn check_dmr_health(app: tauri::AppHandle) -> Result<bool, String> {
+    let port = get_dmr_port_from_state(&app);
+    let url = format!("http://localhost:{}/api/health", port);
+    match reqwest::get(&url).await {
         Ok(response) => Ok(response.status().is_success()),
         Err(_) => Ok(false),
+    }
+}
+
+#[tauri::command]
+async fn get_dmr_port(app: tauri::AppHandle) -> Result<u16, String> {
+    Ok(get_dmr_port_from_state(&app))
+}
+
+fn get_dmr_port_from_state(app: &tauri::AppHandle) -> u16 {
+    if let Some(dmr_manager) = app.try_state::<Arc<Mutex<DmrManager>>>() {
+        // Use try_lock to avoid blocking; fall back to 8080 if locked
+        match dmr_manager.try_lock() {
+            Ok(manager) => manager.port(),
+            Err(_) => 8080,
+        }
+    } else {
+        8080
     }
 }
 
@@ -89,7 +108,7 @@ async fn restart_dmr(app: tauri::AppHandle) -> Result<(), String> {
         manager.start().await?;
     } else {
         // 首次启动，创建并启动 DMR
-        let dmr = DmrManager::new(8080);
+        let dmr = DmrManager::new();
         let dmr_manager = Arc::new(Mutex::new(dmr));
 
         {
@@ -150,7 +169,7 @@ fn main() {
             }
 
             // 配置存在，启动 DMR
-            let dmr = DmrManager::new(8080);
+            let dmr = DmrManager::new();
             let dmr_manager = Arc::new(Mutex::new(dmr));
 
             let dmr_clone = Arc::clone(&dmr_manager);
@@ -172,6 +191,7 @@ fn main() {
             get_config,
             restart_dmr,
             check_dmr_health,
+            get_dmr_port,
             open_file,
             get_workspace_path,
             weixin_get_qrcode,

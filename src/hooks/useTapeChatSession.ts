@@ -2,7 +2,41 @@ import { useState, useRef, useCallback, useEffect, useMemo, type KeyboardEvent }
 import { NEW_TAPE_SELECT_VALUE, NEW_HANDOFF_SELECT_VALUE } from "../constants";
 import { loadWebPrefs, saveWebPrefs } from "../lib/webPrefs";
 import { mergeTapeDisplayForLoading, parseDataStream, type ContextUsage } from "../lib/chatUtils";
-import type { Message, TapeAnchorRow } from "../types/chat";
+import type { Message, ApprovalInfo, TapeAnchorRow } from "../types/chat";
+
+/** Parse approval reply: y/s/a/n [// comment], or batch indices like 1,3,5 */
+function parseApprovalReply(input: string, batchSize?: number): { choice: number; comment?: string; approved?: number[] } | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+  const parts = trimmed.split("//").map((s) => s.trim());
+  const command = parts[0].toLowerCase();
+  const comment = parts.length > 1 ? parts.slice(1).join("//").trim() : undefined;
+
+  // Batch: numeric indices like "1,3,5" or "1-3"
+  if (batchSize && /^[\d,\s-]+$/.test(command)) {
+    const approved: number[] = [];
+    for (const seg of command.split(",")) {
+      const range = seg.trim().split("-");
+      if (range.length === 2) {
+        const start = parseInt(range[0], 10) - 1;
+        const end = parseInt(range[1], 10) - 1;
+        for (let i = start; i <= end; i++) {
+          if (i >= 0 && i < batchSize) approved.push(i);
+        }
+      } else {
+        const idx = parseInt(seg.trim(), 10) - 1;
+        if (idx >= 0 && idx < batchSize) approved.push(idx);
+      }
+    }
+    return { choice: 1, approved, comment };
+  }
+
+  if (command === "y") return { choice: 1, comment };
+  if (command === "s") return { choice: 2, comment };
+  if (command === "a") return { choice: 3, comment };
+  if (command === "n") return { choice: 0, comment };
+  return null;
+}
 
 export function useTapeChatSession() {
   const [user, setUser] = useState<string | null>(null);
@@ -92,6 +126,39 @@ export function useTapeChatSession() {
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages, loading]);
+
+  // SSE: listen for approval events and inject as temporary messages
+  useEffect(() => {
+    if (!authChecked) return;
+    if (authEnabled && user == null) return;
+
+    // Fetch any existing pending approvals (survives page refresh)
+    fetch("/api/approvals/pending")
+      .then((r) => (r.ok ? r.json() : { events: [] }))
+      .then((data: { events?: ApprovalInfo[] }) => {
+        if (Array.isArray(data.events) && data.events.length > 0) {
+          setMessages((prev) => {
+            const existingIds = new Set(prev.filter((m) => m.approval).map((m) => m.approval!.id));
+            const newApprovals = data.events!
+              .filter((e) => !existingIds.has(e.id))
+              .map((e): Message => ({ role: "assistant", content: "", approval: e }));
+            return newApprovals.length > 0 ? [...prev, ...newApprovals] : prev;
+          });
+        }
+      })
+      .catch(() => {});
+
+    const es = new EventSource("/api/approvals");
+    es.addEventListener("approval", (e) => {
+      const event: ApprovalInfo = JSON.parse((e as MessageEvent).data);
+      setMessages((prev) => {
+        // Deduplicate: skip if already present
+        if (prev.some((m) => m.approval?.id === event.id)) return prev;
+        return [...prev, { role: "assistant", content: "", approval: event }];
+      });
+    });
+    return () => es.close();
+  }, [authChecked, authEnabled, user]);
 
   // Load history: optional selected anchor + always after last anchor; concat without dedup
   useEffect(() => {
@@ -195,7 +262,57 @@ export function useTapeChatSession() {
 
   const sendMessage = useCallback(async () => {
     const text = input.trim();
-    if (!text || loading) return;
+    if (!text) return;
+
+    // Check for pending approval — intercept reply (allowed even while loading)
+    const pendingApproval = [...messages].reverse().find((m) => m.approval && !m.approval.resolved);
+    if (pendingApproval?.approval) {
+      const ap = pendingApproval.approval;
+      const batchSize = ap.type === "batch" && ap.requests ? ap.requests.length : undefined;
+      const parsed = parseApprovalReply(text, batchSize);
+
+      // Show user reply in chat
+      setMessages((prev) => [...prev, { role: "user", content: text }]);
+      setInput("");
+
+      const markResolved = (id: string) =>
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.approval?.id === id ? { ...m, approval: { ...m.approval, resolved: true } } : m,
+          ),
+        );
+
+      if (parsed) {
+        try {
+          const resp = await fetch(`/api/approve/${ap.id}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ choice: parsed.choice, comment: parsed.comment, approved: parsed.approved }),
+          });
+          if (resp.ok) {
+            markResolved(ap.id);
+          }
+        } catch (err) {
+          setMessages((prev) => [...prev, { role: "assistant", content: `Approval error: ${err}` }]);
+        }
+      } else {
+        // Unrecognized input — treat as deny
+        try {
+          await fetch(`/api/approve/${ap.id}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ choice: 0, comment: text }),
+          });
+          markResolved(ap.id);
+        } catch { /* ignore */ }
+      }
+      inputRef.current?.focus();
+      return;
+    }
+
+    // Normal chat — block while loading
+    if (loading) return;
+
     const userMsg: Message = { role: "user", content: text };
     const allMsgs = [...messages, userMsg];
     setMessages(allMsgs);
@@ -276,11 +393,14 @@ export function useTapeChatSession() {
   const hasSession = loadedHistoryCount > 0 && messages.length > loadedHistoryCount;
   const showLanding =
     loadedHistoryCount > 0 && messages.length > 0 && messages.length === loadedHistoryCount && !loading;
+  const tapeReadOnly = tapeName !== "web" && !tapeName.startsWith("web:");
 
   const suggestedHandoffName = useMemo(
     () => `web:${new Date().toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15)}`,
     [],
   );
+
+  const hasPendingApproval = messages.some((m) => !!m.approval && !m.approval.resolved);
 
   return {
     user,
@@ -310,6 +430,8 @@ export function useTapeChatSession() {
     isEmpty,
     hasSession,
     showLanding,
+    tapeReadOnly,
+    hasPendingApproval,
     // Dialog states
     showCreateTapeDialog,
     setShowCreateTapeDialog,

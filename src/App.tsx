@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { ApprovalOverlay } from "./components/ApprovalOverlay";
 import { LoginPage } from "./components/LoginPage";
 import { ChatHeader, ChatMessageList, ChatComposer } from "./components/chat";
 import { ContextUsageBar } from "./components/chat/ContextUsageBar";
@@ -59,6 +58,8 @@ function AppContent({
     isEmpty,
     hasSession,
     showLanding,
+    tapeReadOnly,
+    hasPendingApproval,
     showCreateTapeDialog,
     setShowCreateTapeDialog,
     showCreateHandoffDialog,
@@ -127,10 +128,10 @@ function AppContent({
           loading={loading}
           onSend={() => void sendMessage()}
           inputRef={inputRef}
+          readOnly={tapeReadOnly}
+          hasPendingApproval={hasPendingApproval}
         />
       </div>
-
-      <ApprovalOverlay />
 
       <TapeSelectDialog
         open={showTapeSelectDialog}

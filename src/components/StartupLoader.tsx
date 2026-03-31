@@ -62,6 +62,20 @@ export default function StartupLoader({ onComplete }: StartupLoaderProps) {
         setStatus("ready");
         setMessage("DMR is ready!");
         setProgress(100);
+
+        // In packaged Tauri app, redirect webview to dmr serve's HTTP server
+        // so all /api/ requests are same-origin. Dev mode uses Vite proxy instead.
+        const isTauri = "__TAURI_INTERNALS__" in window;
+        if (isTauri) {
+          try {
+            const port = await invoke<number>("get_dmr_port");
+            window.location.href = `http://localhost:${port}`;
+            return; // webview will navigate away
+          } catch (e) {
+            console.error("Failed to get DMR port, falling back:", e);
+          }
+        }
+
         await new Promise(resolve => setTimeout(resolve, 500));
         onComplete();
       } else {

@@ -12,11 +12,26 @@ pub struct DmrManager {
 }
 
 impl DmrManager {
-    pub fn new(port: u16) -> Self {
+    pub fn new() -> Self {
+        let port = Self::find_available_port().unwrap_or(8080);
         Self {
             process: None,
             port,
         }
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    fn find_available_port() -> Result<u16, String> {
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .map_err(|e| format!("Failed to find available port: {}", e))?;
+        let port = listener.local_addr()
+            .map_err(|e| format!("Failed to get local addr: {}", e))?
+            .port();
+        Ok(port)
     }
 
     fn find_dmr_binary() -> Result<PathBuf, String> {
@@ -148,8 +163,20 @@ impl DmrManager {
         let dmr_path = Self::find_dmr_binary()?;
         eprintln!("Found DMR binary at: {:?}", dmr_path);
 
+        // Log HOME for debugging config loading
+        if let Some(home) = dirs::home_dir() {
+            let config_path = home.join(".dmr").join("config.toml");
+            eprintln!("HOME dir: {:?}", home);
+            eprintln!("Config path: {:?} (exists: {})", config_path, config_path.exists());
+        }
+
         let mut cmd = Command::new(&dmr_path);
         cmd.args(&["serve", "-vv"]);
+
+        // 确保 HOME 环境变量正确传递（macOS .app 启动时可能丢失）
+        if let Some(home) = dirs::home_dir() {
+            cmd.env("HOME", home.as_os_str());
+        }
 
         // 设置环境变量
         cmd.env("DMR_WEB_PORT", self.port.to_string());
