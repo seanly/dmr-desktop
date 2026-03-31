@@ -9,12 +9,20 @@ export default defineConfig({
   server: {
     port: 5173,
     strictPort: true,
+    watch: {
+      ignored: ["**/src-tauri/**"],
+    },
+    proxy: {
+      "/api": "http://localhost:8080",
+    },
   },
   envPrefix: ['VITE_', 'TAURI_'],
   build: {
     target: 'esnext',
     minify: !process.env.TAURI_DEBUG ? 'esbuild' : false,
     sourcemap: !!process.env.TAURI_DEBUG,
+    outDir: 'dist',
+    emptyOutDir: true,
   },
   resolve: {
     alias: {

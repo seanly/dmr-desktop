@@ -8,6 +8,7 @@ use dmr::DmrManager;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tauri::Manager;
+use tauri_plugin_shell::ShellExt;
 
 #[tauri::command]
 fn check_config_exists() -> bool {
@@ -22,6 +23,33 @@ fn get_default_config() -> DmrConfig {
 #[tauri::command]
 async fn save_config(config: DmrConfig) -> Result<(), String> {
     config.save()
+}
+
+#[tauri::command]
+async fn open_file(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    app.shell()
+        .open(&path, None)
+        .map_err(|e| format!("Failed to open file: {}", e))
+}
+
+#[tauri::command]
+fn get_workspace_path() -> Result<String, String> {
+    // 从 DMR 配置中读取 workspace 路径
+    match DmrConfig::load() {
+        Ok(config) => {
+            // 如果配置中有 workspace 字段，返回它
+            // 否则返回默认的 ~/.dmr/workspace
+            let home = dirs::home_dir().ok_or("Cannot find home directory")?;
+            let workspace = home.join(".dmr").join("workspace");
+            Ok(workspace.to_string_lossy().to_string())
+        }
+        Err(_) => {
+            // 配置不存在时返回默认路径
+            let home = dirs::home_dir().ok_or("Cannot find home directory")?;
+            let workspace = home.join(".dmr").join("workspace");
+            Ok(workspace.to_string_lossy().to_string())
+        }
+    }
 }
 
 fn main() {
@@ -54,7 +82,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             check_config_exists,
             get_default_config,
-            save_config
+            save_config,
+            open_file,
+            get_workspace_path
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
